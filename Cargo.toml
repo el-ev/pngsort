@@ -1,0 +1,12 @@
+[package]
+name = "pngsort"
+version = "0.1.0"
+edition = "2024"
+authors = ["Iris Shi <0.0@owo.li>"]
+license = "MIT"
+description = "Sort a PNG file... by its pixel values."
+
+[dependencies]
+anyhow = "1.0.99"
+clap = { version = "4.5.46", features = ["derive"] }
+png = "0.18.0"
