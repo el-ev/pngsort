@@ -27,6 +27,16 @@ enum ColorChannel {
     B,
 }
 
+impl ColorChannel {
+    fn index(&self) -> usize {
+        match self {
+            ColorChannel::R => 0,
+            ColorChannel::G => 1,
+            ColorChannel::B => 2,
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 struct Args {
     #[clap(short, long)]
@@ -119,54 +129,24 @@ fn process_image(
     if args.sort_mode != Some(SortMode::Untied) {
         let sort_fn: Box<dyn Fn(&&[u8]) -> u32> = match color_type {
             ColorType::Grayscale | ColorType::GrayscaleAlpha => Box::new(|pixel| pixel[0] as u32),
-            ColorType::Rgb | ColorType::Rgba => match args.sort_mode {
-                Some(SortMode::TiedBySum) | None => {
-                    let channels = &args.sort_channel;
-                    Box::new(move |pixel| {
-                        let mut sum = 0u32;
-                        for channel in channels {
-                            let idx = match channel {
-                                ColorChannel::R => 0,
-                                ColorChannel::G => 1,
-                                ColorChannel::B => 2,
-                            };
-                            sum += pixel[idx] as u32;
+            ColorType::Rgb | ColorType::Rgba => {
+                Box::new(|pixel| {
+                    let mut key = 0u32;
+                    for channel in &args.sort_channel {
+                        let idx = channel.index();
+                        match args.sort_mode {
+                            Some(SortMode::TiedBySum) | None => {
+                                key += pixel[idx] as u32;
+                            }
+                            Some(SortMode::TiedByOrder) => {
+                                key = (key << 8) | (pixel[idx] as u32);
+                            }
+                            _ => unreachable!(),
                         }
-                        sum
-                    })
-                }
-                Some(SortMode::TiedByOrder) => {
-                    let channels = &args.sort_channel;
-                    Box::new(move |pixel| {
-                        let mut key = 0u32;
-                        for channel in channels {
-                            let idx = match channel {
-                                ColorChannel::R => 0,
-                                ColorChannel::G => 1,
-                                ColorChannel::B => 2,
-                            };
-                            key = (key << 8) | (pixel[idx] as u32);
-                        }
-                        key
-                    })
-                }
-                // Some(SortMode::Untied) => {
-                //     let channels = args.sort_channel.clone();
-                //     Box::new(move |pixel| {
-                //         let mut key = 0u32;
-                //         for channel in &channels {
-                //             let idx = match channel {
-                //                 ColorChannel::R => 0,
-                //                 ColorChannel::G => 1,
-                //                 ColorChannel::B => 2,
-                //             };
-                //             key = (key << 8) | (pixel[idx] as u32);
-                //         }
-                //         key
-                //     })
-                // }
-                _ => unreachable!(),
-            },
+                    }
+                    key
+                })
+            }
             _ => unreachable!(),
         };
         match args.sort_range {
@@ -240,13 +220,8 @@ fn process_image(
                 for y in 0..height {
                     for channel in &args.sort_channel {
                         channel_buf.clear();
-                        let channel_idx = match channel {
-                            ColorChannel::R => 0,
-                            ColorChannel::G => 1,
-                            ColorChannel::B => 2,
-                        };
                         for x in 0..width {
-                            let idx = (y * width + x) * bytes_per_pixel + channel_idx;
+                            let idx = (y * width + x) * bytes_per_pixel + channel.index();
                             channel_buf.push(out_buf[idx]);
                         }
                         channel_buf.sort_unstable();
@@ -254,7 +229,7 @@ fn process_image(
                             channel_buf.reverse();
                         }
                         for (x, &b) in channel_buf.iter().enumerate().take(height) {
-                            let idx = (y * width + x) * bytes_per_pixel + channel_idx;
+                            let idx = (y * width + x) * bytes_per_pixel + channel.index();
                             out_buf[idx] = b;
                         }
                     }
@@ -266,13 +241,8 @@ fn process_image(
                 for x in 0..width {
                     for channel in &args.sort_channel {
                         channel_buf.clear();
-                        let channel_idx = match channel {
-                            ColorChannel::R => 0,
-                            ColorChannel::G => 1,
-                            ColorChannel::B => 2,
-                        };
                         for y in 0..height {
-                            let idx = (y * width + x) * bytes_per_pixel + channel_idx;
+                            let idx = (y * width + x) * bytes_per_pixel + channel.index();
                             channel_buf.push(out_buf[idx]);
                         }
                         channel_buf.sort_unstable();
@@ -280,7 +250,7 @@ fn process_image(
                             channel_buf.reverse();
                         }
                         for (y, &b) in channel_buf.iter().enumerate().take(height) {
-                            let idx = (y * width + x) * bytes_per_pixel + channel_idx;
+                            let idx = (y * width + x) * bytes_per_pixel + channel.index();
                             out_buf[idx] = b;
                         }
                     }
@@ -290,14 +260,9 @@ fn process_image(
                 let mut channel_buf: Vec<u8> = Vec::with_capacity(width * height);
                 for channel in &args.sort_channel {
                     channel_buf.clear();
-                    let channel_idx = match channel {
-                        ColorChannel::R => 0,
-                        ColorChannel::G => 1,
-                        ColorChannel::B => 2,
-                    };
                     for y in 0..height {
                         for x in 0..width {
-                            let idx = (y * width + x) * bytes_per_pixel + channel_idx;
+                            let idx = (y * width + x) * bytes_per_pixel + channel.index();
                             channel_buf.push(out_buf[idx]);
                         }
                     }
@@ -308,7 +273,7 @@ fn process_image(
                     let mut i = 0;
                     for y in 0..height {
                         for x in 0..width {
-                            let idx = (y * width + x) * bytes_per_pixel + channel_idx;
+                            let idx = (y * width + x) * bytes_per_pixel + channel.index();
                             out_buf[idx] = channel_buf[i];
                             i += 1;
                         }
@@ -319,14 +284,9 @@ fn process_image(
                 let mut channel_buf: Vec<u8> = Vec::with_capacity(width * height);
                 for channel in &args.sort_channel {
                     channel_buf.clear();
-                    let channel_idx = match channel {
-                        ColorChannel::R => 0,
-                        ColorChannel::G => 1,
-                        ColorChannel::B => 2,
-                    };
                     for y in 0..height {
                         for x in 0..width {
-                            let idx = (y * width + x) * bytes_per_pixel + channel_idx;
+                            let idx = (y * width + x) * bytes_per_pixel + channel.index();
                             channel_buf.push(out_buf[idx]);
                         }
                     }
@@ -336,7 +296,7 @@ fn process_image(
                     }
                     for x in 0..width {
                         for y in 0..height {
-                            let dst_idx = (y * width + x) * bytes_per_pixel + channel_idx;
+                            let dst_idx = (y * width + x) * bytes_per_pixel + channel.index();
                             let src_idx = x * height + y;
                             out_buf[dst_idx] = channel_buf[src_idx];
                         }
