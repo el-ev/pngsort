@@ -107,7 +107,7 @@ fn main() -> Result<()> {
     let width = info.width;
     let height = info.height;
     let mut src_buf = vec![0; reader.output_buffer_size().unwrap()];
-    while reader.next_frame(&mut src_buf).is_ok() {}
+    reader.next_frame(&mut src_buf)?;
 
     let sorted_buf = process_image(&args, &src_buf, width as usize, height as usize, color_type)?;
 
