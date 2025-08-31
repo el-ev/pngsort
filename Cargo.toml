@@ -6,7 +6,17 @@ authors = ["Iris Shi <0.0@owo.li>"]
 license = "MIT"
 description = "Sort a PNG file... by its pixel values."
 
+[[bin]]
+name = "pngsort"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 anyhow = "1.0.99"
 clap = { version = "4.5.46", features = ["derive"] }
 png = "0.18.0"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.143"
+wasm-bindgen = "0.2.100"
+web-sys = { version = "0.3", features = ["console"] }
