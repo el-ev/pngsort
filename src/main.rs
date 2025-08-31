@@ -4,7 +4,7 @@ use png::ColorType;
 use std::fs::File;
 use std::io::BufReader;
 
-type SortFn = Box<dyn Fn(&&[u8]) -> u32>;
+type SortFn = Box<dyn Fn(&&[u8]) -> i32>;
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug)]
 enum SortRange {
@@ -44,7 +44,7 @@ struct Args {
     input: String,
     #[clap(short, long)]
     output: String,
-    #[clap(long)]
+    #[clap(short, long)]
     descending: bool,
     #[clap(long, default_value = "row")]
     sort_range: SortRange,
@@ -156,29 +156,28 @@ fn process_image(
 }
 
 fn create_sort_function(args: &Args, color_type: ColorType) -> SortFn {
-    match color_type {
-        ColorType::Grayscale | ColorType::GrayscaleAlpha => Box::new(|pixel| pixel[0] as u32),
+    let asc: SortFn = match color_type {
+        ColorType::Grayscale | ColorType::GrayscaleAlpha => Box::new(|pixel| pixel[0] as i32),
         ColorType::Rgb | ColorType::Rgba => {
             let channels = args.sort_channel.clone();
             let mode = args.sort_mode;
             Box::new(move |pixel| {
-                let mut key = 0u32;
-                for channel in &channels {
+                channels.iter().fold(0i32, |key, channel| {
                     let idx = channel.index();
                     match mode {
-                        Some(SortMode::TiedBySum) | None => {
-                            key += pixel[idx] as u32;
-                        }
-                        Some(SortMode::TiedByOrder) => {
-                            key = (key << 8) | (pixel[idx] as u32);
-                        }
+                        Some(SortMode::TiedBySum) | None => key + pixel[idx] as i32,
+                        Some(SortMode::TiedByOrder) => (key << 8) | (pixel[idx] as i32),
                         _ => unreachable!(),
                     }
-                }
-                key
+                })
             })
         }
         _ => unreachable!(),
+    };
+    if args.descending {
+        Box::new(move |pixel| -asc(pixel))
+    } else {
+        asc
     }
 }
 
@@ -195,40 +194,16 @@ fn sort_pixels_tied(
 
     match args.sort_range {
         SortRange::Row => {
-            sort_by_rows(
-                src_buf,
-                out_buf,
-                width,
-                height,
-                bytes_per_pixel,
-                &sort_fn,
-                args.descending,
-            );
+            sort_by_rows(src_buf, out_buf, width, height, bytes_per_pixel, &sort_fn);
         }
         SortRange::Column => {
-            sort_by_columns(
-                src_buf,
-                out_buf,
-                width,
-                height,
-                bytes_per_pixel,
-                &sort_fn,
-                args.descending,
-            );
+            sort_by_columns(src_buf, out_buf, width, height, bytes_per_pixel, &sort_fn);
         }
         SortRange::RowMajor => {
-            sort_row_major(src_buf, out_buf, bytes_per_pixel, &sort_fn, args.descending);
+            sort_row_major(src_buf, out_buf, bytes_per_pixel, &sort_fn);
         }
         SortRange::ColumnMajor => {
-            sort_column_major(
-                src_buf,
-                out_buf,
-                width,
-                height,
-                bytes_per_pixel,
-                &sort_fn,
-                args.descending,
-            );
+            sort_column_major(src_buf, out_buf, width, height, bytes_per_pixel, &sort_fn);
         }
     }
 
@@ -241,8 +216,7 @@ fn sort_by_rows(
     width: usize,
     height: usize,
     bytes_per_pixel: usize,
-    sort_fn: &dyn Fn(&&[u8]) -> u32,
-    descending: bool,
+    sort_fn: &dyn Fn(&&[u8]) -> i32,
 ) {
     for y in 0..height {
         let start = y * width * bytes_per_pixel;
@@ -250,10 +224,6 @@ fn sort_by_rows(
         let mut pixels: Vec<&[u8]> = src_buf[start..end].chunks_exact(bytes_per_pixel).collect();
 
         pixels.sort_by_key(|p| sort_fn(p));
-        if descending {
-            pixels.reverse();
-        }
-
         let line = &mut out_buf[start..end];
         for (dst, src_pixel) in line.chunks_exact_mut(bytes_per_pixel).zip(pixels.iter()) {
             dst.copy_from_slice(src_pixel);
@@ -267,8 +237,7 @@ fn sort_by_columns(
     width: usize,
     height: usize,
     bytes_per_pixel: usize,
-    sort_fn: &dyn Fn(&&[u8]) -> u32,
-    descending: bool,
+    sort_fn: &dyn Fn(&&[u8]) -> i32,
 ) {
     for x in 0..width {
         let mut column: Vec<&[u8]> = Vec::with_capacity(height);
@@ -278,9 +247,6 @@ fn sort_by_columns(
         }
 
         column.sort_by_key(|p| sort_fn(p));
-        if descending {
-            column.reverse();
-        }
 
         for (y, pixel) in column.iter().enumerate() {
             let idx = (y * width + x) * bytes_per_pixel;
@@ -293,14 +259,10 @@ fn sort_row_major(
     src_buf: &[u8],
     out_buf: &mut [u8],
     bytes_per_pixel: usize,
-    sort_fn: &dyn Fn(&&[u8]) -> u32,
-    descending: bool,
+    sort_fn: &dyn Fn(&&[u8]) -> i32,
 ) {
     let mut pixels: Vec<&[u8]> = src_buf.chunks_exact(bytes_per_pixel).collect();
     pixels.sort_by_key(|p| sort_fn(p));
-    if descending {
-        pixels.reverse();
-    }
 
     for (dst, src_pixel) in out_buf.chunks_exact_mut(bytes_per_pixel).zip(pixels.iter()) {
         dst.copy_from_slice(src_pixel);
@@ -313,14 +275,10 @@ fn sort_column_major(
     width: usize,
     height: usize,
     bytes_per_pixel: usize,
-    sort_fn: &dyn Fn(&&[u8]) -> u32,
-    descending: bool,
+    sort_fn: &dyn Fn(&&[u8]) -> i32,
 ) {
     let mut pixels: Vec<&[u8]> = src_buf.chunks_exact(bytes_per_pixel).collect();
     pixels.sort_by_key(|p| sort_fn(p));
-    if descending {
-        pixels.reverse();
-    }
 
     for x in 0..width {
         for y in 0..height {
@@ -377,10 +335,7 @@ fn sort_channels_by_rows(
                 channel_buf.push(out_buf[idx]);
             }
 
-            channel_buf.sort_unstable();
-            if args.descending {
-                channel_buf.reverse();
-            }
+            channel_buf.sort_unstable_by(|a, b| if args.descending { b.cmp(a) } else { a.cmp(b) });
 
             for (x, &value) in channel_buf.iter().enumerate() {
                 let idx = (y * width + x) * bytes_per_pixel + channel.index();
@@ -408,10 +363,7 @@ fn sort_channels_by_columns(
                 channel_buf.push(out_buf[idx]);
             }
 
-            channel_buf.sort_unstable();
-            if args.descending {
-                channel_buf.reverse();
-            }
+            channel_buf.sort_unstable_by(|a, b| if args.descending { b.cmp(a) } else { a.cmp(b) });
 
             for (y, &value) in channel_buf.iter().enumerate() {
                 let idx = (y * width + x) * bytes_per_pixel + channel.index();
@@ -439,10 +391,7 @@ fn sort_channels_row_major(
             }
         }
 
-        channel_buf.sort_unstable();
-        if args.descending {
-            channel_buf.reverse();
-        }
+        channel_buf.sort_unstable_by(|a, b| if args.descending { b.cmp(a) } else { a.cmp(b) });
 
         let mut i = 0;
         for y in 0..height {
@@ -473,10 +422,7 @@ fn sort_channels_column_major(
             }
         }
 
-        channel_buf.sort_unstable();
-        if args.descending {
-            channel_buf.reverse();
-        }
+        channel_buf.sort_unstable_by(|a, b| if args.descending { b.cmp(a) } else { a.cmp(b) });
 
         for x in 0..width {
             for y in 0..height {
