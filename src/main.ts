@@ -163,9 +163,9 @@ class PngSortApp {
     }
 
     private displayResult(blob: Blob): void {
-        const url = URL.createObjectURL(blob);
+        const displayUrl = URL.createObjectURL(blob);
         const img = document.createElement('img');
-        img.src = url;
+        img.src = displayUrl;
         img.className = 'image-preview';
         img.alt = 'Processed image';
 
@@ -173,13 +173,30 @@ class PngSortApp {
         this.resultContainer.innerHTML = '';
         this.resultContainer.appendChild(img);
 
-        // Setup download
-        this.downloadBtn.href = url;
-        this.downloadBtn.download = `sorted_${this.currentImageFile?.name || 'image.png'}`;
+        // Setup download with proper click handler
+        this.downloadBtn.onclick = (e) => {
+            e.preventDefault();
+            this.downloadImage(blob);
+        };
         this.downloadBtn.style.display = 'inline-block';
 
-        // Cleanup URL when image loads
-        img.onload = () => URL.revokeObjectURL(url);
+        // Cleanup display URL when image loads
+        img.onload = () => URL.revokeObjectURL(displayUrl);
+    }
+
+    private downloadImage(blob: Blob): void {
+        const downloadUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `sorted_${this.currentImageFile?.name || 'image.png'}`;
+        
+        // Append to body, click, and remove
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Clean up the URL
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 100);
     }
 
     private setProcessingState(isProcessing: boolean): void {
