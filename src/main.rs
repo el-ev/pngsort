@@ -45,7 +45,7 @@ struct Args {
     output: String,
     #[clap(long)]
     descending: bool,
-    #[clap(long, default_value = "line")]
+    #[clap(long, default_value = "row")]
     sort_range: SortRange,
     #[clap(long)]
     sort_mode: Option<SortMode>,
