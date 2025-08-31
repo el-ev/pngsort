@@ -58,6 +58,38 @@ struct Args {
     sort_channel: Vec<ColorChannel>,
 }
 
+impl Args {
+    fn validate(&self, color_type: ColorType) -> Result<()> {
+        let mut sorted_channels = self.sort_channel.clone();
+        sorted_channels.sort();
+        sorted_channels.dedup();
+        if sorted_channels.len() != self.sort_channel.len() {
+            anyhow::bail!("Duplicate channels are not allowed in sort_channel");
+        }
+
+        match color_type {
+            ColorType::Rgb | ColorType::Rgba => {
+                if let Some(SortMode::Untied) = self.sort_mode
+                    && self.sort_channel.is_empty()
+                {
+                    anyhow::bail!("Sort channel should be specified when using Untied sort mode");
+                }
+            }
+            ColorType::Grayscale | ColorType::GrayscaleAlpha => {
+                if self.sort_mode.is_some() {
+                    anyhow::bail!("Sort mode option is not applicable for Grayscale images");
+                }
+                if !self.sort_channel.is_empty() {
+                    anyhow::bail!("Channel option is not applicable for Grayscale images");
+                }
+            }
+            ColorType::Indexed => anyhow::bail!("Indexed color type is not supported"),
+        }
+
+        Ok(())
+    }
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     let input_file = File::open(&args.input)?;
@@ -67,36 +99,10 @@ fn main() -> Result<()> {
     let mut reader = decoder.read_info()?;
     let info = reader.info();
 
-    {
-        let mut sorted_channels = args.sort_channel.clone();
-        sorted_channels.sort();
-        sorted_channels.dedup();
-        if sorted_channels.len() != args.sort_channel.len() {
-            anyhow::bail!("Duplicate channels are not allowed in sort_channel");
-        }
-    }
-
     let color_type = info.color_type;
     let bit_depth = info.bit_depth;
 
-    match color_type {
-        ColorType::Rgb | ColorType::Rgba => {
-            if let Some(SortMode::Untied) = args.sort_mode
-                && args.sort_channel.is_empty()
-            {
-                anyhow::bail!("Sort channel should be specified when using Untied sort mode");
-            }
-        }
-        ColorType::Grayscale | ColorType::GrayscaleAlpha => {
-            if args.sort_mode.is_some() {
-                anyhow::bail!("Sort mode option is not applicable for Grayscale images");
-            }
-            if !args.sort_channel.is_empty() {
-                anyhow::bail!("Channel option is not applicable for Grayscale images");
-            }
-        }
-        ColorType::Indexed => anyhow::bail!("Indexed color type is not supported"),
-    }
+    args.validate(color_type)?;
 
     let width = info.width;
     let height = info.height;
