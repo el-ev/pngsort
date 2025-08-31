@@ -37,7 +37,7 @@ class PngSorter {
 
             // Process the image using WASM
             const result = wasm_main(configStr, inputArray);
-            
+
             return result;
         } catch (error) {
             console.error('Error processing image:', error);
@@ -55,19 +55,19 @@ class PngSortApp {
     private imageInput!: HTMLInputElement;
     private sortRange!: HTMLSelectElement;
     private sortMode!: HTMLSelectElement;
-    private channelR!: HTMLInputElement;
-    private channelG!: HTMLInputElement;
-    private channelB!: HTMLInputElement;
+    private channelList!: HTMLElement;
     private descending!: HTMLInputElement;
     private processBtn!: HTMLButtonElement;
     private resultContainer!: HTMLElement;
     private downloadBtn!: HTMLAnchorElement;
     private messageContainer!: HTMLElement;
+    private hintText!: HTMLElement;
 
     constructor() {
         this.pngSorter = new PngSorter();
         this.initializeElements();
         this.setupEventListeners();
+        this.updateChannelOrderHint();
         this.initializeWasm();
     }
 
@@ -75,19 +75,110 @@ class PngSortApp {
         this.imageInput = document.getElementById('imageInput') as HTMLInputElement;
         this.sortRange = document.getElementById('sortRange') as HTMLSelectElement;
         this.sortMode = document.getElementById('sortMode') as HTMLSelectElement;
-        this.channelR = document.getElementById('channelR') as HTMLInputElement;
-        this.channelG = document.getElementById('channelG') as HTMLInputElement;
-        this.channelB = document.getElementById('channelB') as HTMLInputElement;
+        this.channelList = document.getElementById('channelList') as HTMLElement;
         this.descending = document.getElementById('descending') as HTMLInputElement;
         this.processBtn = document.getElementById('processBtn') as HTMLButtonElement;
         this.resultContainer = document.getElementById('resultContainer') as HTMLElement;
         this.downloadBtn = document.getElementById('downloadBtn') as HTMLAnchorElement;
         this.messageContainer = document.getElementById('messageContainer') as HTMLElement;
+        this.hintText = document.getElementById('hintText') as HTMLElement;
     }
 
     private setupEventListeners(): void {
         this.imageInput.addEventListener('change', this.handleImageSelect.bind(this));
         this.processBtn.addEventListener('click', this.handleProcessImage.bind(this));
+        this.sortMode.addEventListener('change', this.updateChannelOrderHint.bind(this));
+        this.setupDragAndDrop();
+    }
+
+    private setupDragAndDrop(): void {
+        const channelItems = this.channelList.querySelectorAll('.channel-item');
+
+        channelItems.forEach(item => {
+            item.addEventListener('dragstart', (e) => this.handleDragStart(e as DragEvent));
+            item.addEventListener('dragover', (e) => this.handleDragOver(e as DragEvent));
+            item.addEventListener('dragenter', (e) => this.handleDragEnter(e as DragEvent));
+            item.addEventListener('dragleave', (e) => this.handleDragLeave(e as DragEvent));
+            item.addEventListener('drop', (e) => this.handleDrop(e as DragEvent));
+            item.addEventListener('dragend', () => this.handleDragEnd());
+        });
+    }
+
+    private draggedElement: HTMLElement | null = null;
+
+    private handleDragStart(e: DragEvent): void {
+        this.draggedElement = e.target as HTMLElement;
+        this.draggedElement.classList.add('dragging');
+        if (e.dataTransfer) {
+            e.dataTransfer.effectAllowed = 'move';
+        }
+    }
+
+    private handleDragOver(e: DragEvent): void {
+        e.preventDefault();
+        if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'move';
+        }
+    }
+
+    private handleDragEnter(e: DragEvent): void {
+        e.preventDefault();
+        const target = e.target as HTMLElement;
+        const channelItem = target.closest('.channel-item') as HTMLElement;
+        if (channelItem && channelItem !== this.draggedElement) {
+            channelItem.classList.add('drag-over');
+        }
+    }
+
+    private handleDragLeave(e: DragEvent): void {
+        const target = e.target as HTMLElement;
+        const channelItem = target.closest('.channel-item') as HTMLElement;
+        if (channelItem) {
+            channelItem.classList.remove('drag-over');
+        }
+    }
+
+    private handleDrop(e: DragEvent): void {
+        e.preventDefault();
+        const target = e.target as HTMLElement;
+        const targetItem = target.closest('.channel-item') as HTMLElement;
+
+        if (targetItem && this.draggedElement && targetItem !== this.draggedElement) {
+            const targetRect = targetItem.getBoundingClientRect();
+            const targetCenter = targetRect.top + targetRect.height / 2;
+
+            if (e.clientY < targetCenter) {
+                this.channelList.insertBefore(this.draggedElement, targetItem);
+            } else {
+                this.channelList.insertBefore(this.draggedElement, targetItem.nextSibling);
+            }
+
+            this.updateChannelPriorities();
+        }
+
+        targetItem?.classList.remove('drag-over');
+    }
+
+    private handleDragEnd(): void {
+        if (this.draggedElement) {
+            this.draggedElement.classList.remove('dragging');
+            this.draggedElement = null;
+        }
+
+        // Remove all drag-over classes
+        this.channelList.querySelectorAll('.channel-item').forEach(item => {
+            item.classList.remove('drag-over');
+        });
+    }
+
+    private updateChannelPriorities(): void {
+        const channelItems = this.channelList.querySelectorAll('.channel-item');
+        channelItems.forEach((item, index) => {
+            const prioritySpan = item.querySelector('.channel-priority') as HTMLElement;
+            if (prioritySpan) {
+                prioritySpan.textContent = (index + 1).toString();
+            }
+        });
     }
 
     private async initializeWasm(): Promise<void> {
@@ -96,6 +187,7 @@ class PngSortApp {
             await this.pngSorter.init();
             this.showMessage('PNG sorter ready!', 'success');
             this.updateProcessButtonState();
+            this.updateChannelOrderHint(); // Initialize the hint display
         } catch (error) {
             this.showMessage('Failed to initialize PNG sorter: ' + (error as Error).message, 'error');
         }
@@ -127,11 +219,8 @@ class PngSortApp {
             this.setProcessingState(true);
             this.showMessage('Processing image...', 'info');
 
-            // Get selected channels
-            const channels = [];
-            if (this.channelR.checked) channels.push('R');
-            if (this.channelG.checked) channels.push('G');
-            if (this.channelB.checked) channels.push('B');
+            // Get selected channels in the user-defined order
+            const channels = this.getSelectedChannelsInOrder();
 
             if (channels.length === 0) {
                 this.showMessage('Please select at least one color channel.', 'error');
@@ -189,19 +278,19 @@ class PngSortApp {
         const link = document.createElement('a');
         link.href = downloadUrl;
         link.download = `sorted_${this.currentImageFile?.name || 'image.png'}`;
-        
+
         // Append to body, click, and remove
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        
+
         // Clean up the URL
         setTimeout(() => URL.revokeObjectURL(downloadUrl), 100);
     }
 
     private setProcessingState(isProcessing: boolean): void {
         this.processBtn.disabled = isProcessing;
-        
+
         if (isProcessing) {
             this.processBtn.innerHTML = '<span class="loading"></span>Processing...';
         } else {
@@ -210,8 +299,8 @@ class PngSortApp {
     }
 
     private updateProcessButtonState(): void {
-        const canProcess = this.currentImageFile && this.pngSorter && 
-                          this.pngSorter['isInitialized'];
+        const canProcess = this.currentImageFile && this.pngSorter &&
+            this.pngSorter['isInitialized'];
         this.processBtn.disabled = !canProcess;
     }
 
@@ -231,6 +320,36 @@ class PngSortApp {
                 }
             }, 3000);
         }
+    }
+
+    private updateChannelOrderHint(): void {
+        const isTiedByOrder = this.sortMode.value === 'TiedByOrder';
+        if (isTiedByOrder) {
+            this.hintText.textContent = 'Higher priority channels sort first';
+            this.hintText.style.fontWeight = '600';
+            this.hintText.style.color = '#007acc';
+        } else {
+            this.hintText.textContent = 'Order only matters for "Tied By Order" mode';
+            this.hintText.style.fontWeight = 'normal';
+            this.hintText.style.color = '#666';
+        }
+    }
+
+    private getSelectedChannelsInOrder(): string[] {
+        const channels: string[] = [];
+        const channelItems = this.channelList.querySelectorAll('.channel-item');
+
+        channelItems.forEach(item => {
+            const checkbox = item.querySelector('input[type="checkbox"]') as HTMLInputElement;
+            if (checkbox && checkbox.checked) {
+                const channel = item.getAttribute('data-channel');
+                if (channel) {
+                    channels.push(channel);
+                }
+            }
+        });
+
+        return channels;
     }
 }
 
